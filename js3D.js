@@ -1,10 +1,12 @@
-if (!Date.now) {
-    Date.now = function() { return new Date().getTime(); }
-}
+if ( ! Detector.webgl )
+	Detector.addGetWebGLMessage();
+
+if ( ! Date.now )
+	Date.now = function() { return new Date().getTime(); }
+
+
 
 Ammo().then(function(Ammo) {
-	if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
-	
 	var SCREEN_WIDTH = window.innerWidth;
 	var SCREEN_HEIGHT = window.innerHeight;
 	
@@ -60,8 +62,10 @@ var corda_segmentos = 10;
 	
 	// Graphics variables
 	var container, stats;
-	var camera, controls, scene, renderer;
+	var camera, controls, scene, renderer, composer;
 	var textureLoader;
+	// Lava
+	var uniforms;
 	// Terreno
 	var cameraOrtho, sceneRenderTarget;
 	var uniformsNoise, uniformsNormal, uniformsTerrain,
@@ -243,7 +247,7 @@ var corda_segmentos = 10;
 			corda_geo.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array( corda_pontos ), 3 ) );
 			corda_geo.computeBoundingSphere();
 			
-			var cordaMesh = new THREE.LineSegments( corda_geo, new THREE.LineBasicMaterial( { color: 0x000000 } ) );
+			var cordaMesh = new THREE.LineSegments( corda_geo, new THREE.LineBasicMaterial( { color: 0x0000ff } ) );
 			
 			// corda - physics
 			var softBodyHelpers = new Ammo.btSoftBodyHelpers();
@@ -494,7 +498,6 @@ for(i=1;i<r;++i) {
 		
 		
 		// HEIGHT + NORMAL MAPS
-
 		var normalShader = THREE.NormalMapShader;
 
 		var rx = 128, ry = 128;
@@ -518,10 +521,9 @@ for(i=1;i<r;++i) {
 		uniformsNormal.resolution.value.set( rx, ry );
 		uniformsNormal.heightMap.value = heightMap.texture;
 
-		var vertexShader = document.getElementById( 'vertexShader' ).textContent;
+		var vertexShader = document.getElementById( 'vertexShaderNoise' ).textContent;
 
 		// TEXTURES
-
 		var loadingManager = new THREE.LoadingManager( function(){
 			terrain.visible = true;
 		});
@@ -540,7 +542,6 @@ for(i=1;i<r;++i) {
 		specularMap.texture.wrapS = specularMap.texture.wrapT = THREE.RepeatWrapping;
 
 		// TERRAIN SHADER
-
 		var terrainShader = THREE.ShaderTerrain[ "terrain" ];
 
 		uniformsTerrain = THREE.UniformsUtils.clone( terrainShader.uniforms );
@@ -585,6 +586,18 @@ for(i=1;i<r;++i) {
 
 			mlib[ params[ i ][ 0 ] ] = material;
 		}
+		
+		// Lava
+		uniforms = {
+				fogDensity: { value: 0.45 },
+				fogColor: { value: new THREE.Vector3( 0, 0, 0 ) },
+				time: { value: 1.0 },
+				uvScale: { value: new THREE.Vector2( 3.0, 1.0 ) },
+				texture1: { value: textureLoader.load( 'textures/lava/cloud.png' ) },
+				texture2: { value: textureLoader.load( 'textures/lava/lavatile.jpg' ) }
+			};
+		uniforms.texture1.value.wrapS = uniforms.texture1.value.wrapT = THREE.RepeatWrapping;
+		uniforms.texture2.value.wrapS = uniforms.texture2.value.wrapT = THREE.RepeatWrapping;
 	}
 	
 	
@@ -627,7 +640,7 @@ for(i=1;i<r;++i) {
 		geometryCyl.scale(0.33, 1, 1);
 		var materialCyl = new THREE.MeshBasicMaterial( {color: 0x999999} );*/
 		
-		// GRID Cubos(100x100x100)
+		/*/ GRID Cubos(100x100x100)
 		var geometryCube = new THREE.EdgesGeometry( new THREE.BoxBufferGeometry( tamanhoGrid, tamanhoGrid, tamanhoGrid ) );
 		
 		for(var c=-cubosDeCadaLado; c<=cubosDeCadaLado; c++) {
@@ -646,7 +659,7 @@ for(i=1;i<r;++i) {
 			cylinder.rotation.z = Math.PI/2;
 			cylinder.receiveShadow = true;
 			cylinder.position.set( c * tamanhoGrid, -tamanhoGrid, 0 );
-			scene.add( cylinder );*/
+			scene.add( cylinder );/
 			
 			// "teto"
 			cube = new THREE.LineSegments(
@@ -656,7 +669,7 @@ for(i=1;i<r;++i) {
 			cube.receiveShadow = true;
 			cube.position.set( c * tamanhoGrid, tamanhoGrid / 2, 0 );
 			scene.add( cube );
-		}
+		}*/
 
 		/*// CHAO
 		var ground = new THREE.Mesh(
@@ -667,30 +680,33 @@ for(i=1;i<r;++i) {
 		ground.receiveShadow = true;
 		scene.add( ground );*/
 
+		// Lava
+		var materialLava = new THREE.ShaderMaterial( {
+				uniforms: uniforms,
+				vertexShader: document.getElementById( 'vertexShaderLava' ).textContent,
+				fragmentShader: document.getElementById( 'fragmentShaderLava' ).textContent
+			});
 		pos.set( 0,-tamanhoGrid,0 );
 		quat.set( 0, 0, 0, 1 );
-		var chao = createParalellepiped( totCubos * tamanhoGrid, 4, 100, 0, pos, quat, material );
+		var chao = createParalellepiped( totCubos * tamanhoGrid, 10, 200, 0, pos, quat, materialLava );
 		chao.castShadow = true;
 		chao.receiveShadow = true;
 		
 		
 		
 		
-		
+		// terreno
 		var plane = new THREE.PlaneBufferGeometry( SCREEN_WIDTH, SCREEN_HEIGHT/2 );
-
 		quadTarget = new THREE.Mesh( plane, new THREE.MeshBasicMaterial( { color: 0x000000 } ) );
 		quadTarget.position.z = -500;
 		sceneRenderTarget.add( quadTarget );
 
 		// TERRAIN MESH
-
-		var geometryTerrain = new THREE.PlaneBufferGeometry( 6000, 600, 256, 20 );
-
+		var geometryTerrain = new THREE.PlaneBufferGeometry( 6000, 1000, 256, 20 );
 		THREE.BufferGeometryUtils.computeTangents( geometryTerrain );
-
 		terrain = new THREE.Mesh( geometryTerrain, mlib[ 'terrain' ] );
-		terrain.position.set( 0, -185, 0 );
+		terrain.scale.set( 0.25, 0.15, 0.15 );
+		terrain.position.set( 0, -tamanhoGrid, 0 );
 		terrain.rotation.x = -Math.PI / 2;
 		terrain.visible = false;
 		scene.add( terrain );
@@ -911,9 +927,17 @@ for(i=1;i<r;++i) {
 			}
 		}*/
 		
-		
+		// terrain
+		quadTarget.material = mlib[ 'heightmap' ];
+		renderer.render( sceneRenderTarget, cameraOrtho, heightMap, true );
 
-		//camera.position.x = bola.x - bola_posI;
+		quadTarget.material = mlib[ 'normal' ];
+		renderer.render( sceneRenderTarget, cameraOrtho, normalMap, true );
+		
+		// Lava
+		uniforms.time.value += (deltaTime * 2);
+
+		camera.position.x = bola.x - bola_posI;
 		renderer.render( scene, camera );
 		
 		time += deltaTime;
