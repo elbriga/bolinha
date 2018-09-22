@@ -1,5 +1,16 @@
+if (!Date.now) {
+    Date.now = function() { return new Date().getTime(); }
+}
+
 Ammo().then(function(Ammo) {
 	if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+	
+	var SCREEN_WIDTH = window.innerWidth;
+	var SCREEN_HEIGHT = window.innerHeight;
+	
+	// "Defines"
+	const ID_TETO = 1;
+	const ID_BOLA = 2;
 	
 	// Geral
 	const margin   = 0.05;
@@ -9,7 +20,7 @@ Ammo().then(function(Ammo) {
 	// BOLA
 	var bola;
 	const bola_raio  = 24;
-	const bola_massa = 30;
+	const bola_massa = 3;
 	const bola_posI  = -300;
 	
 	// LANÇA + CORDA = LAÇO
@@ -17,10 +28,10 @@ Ammo().then(function(Ammo) {
 	var lanca;
 	var corda;
 	const lanca_raio = 5;
-	const lanca_massa     = 10.0;
+	const lanca_massa     = 50.0;
 	const corda_massa     = 2;
 	const corda_tamanho   = 120;
-	const corda_segmentos = 10;
+var corda_segmentos = 10;
 	
 	// Teto e Blocos
 	var teto;
@@ -42,13 +53,32 @@ Ammo().then(function(Ammo) {
 	var time = 0;
 	
 	
+	// Controle do tamanho da corda
+	var esticaCorda = 0;
+	
 	
 	
 	// Graphics variables
 	var container, stats;
-	var camera, controls, scene, renderer, stats;
+	var camera, controls, scene, renderer;
 	var textureLoader;
+	// Terreno
+	var cameraOrtho, sceneRenderTarget;
+	var uniformsNoise, uniformsNormal, uniformsTerrain,
+		heightMap, normalMap,
+		quadTarget;
+
+	var directionalLight, pointLight;
+	var terrain;
 	
+	var textureCounter = 0;
+
+	var animDelta = 0, animDeltaDir = -1;
+	var lightVal = 0, lightDir = 1;
+	var updateNoise = true;
+	var animateTerrain = false;
+	var mlib = {};
+
 	var clock = new THREE.Clock();
 	
 	class obj3DT {
@@ -59,6 +89,10 @@ Ammo().then(function(Ammo) {
 			this._mass  = mass;
 			this._soft  = soft;
 			
+			this.novo();
+		}
+		
+		novo() {
 			this._mesh.castShadow    = true;
 			this._mesh.receiveShadow = true;
 	
@@ -115,9 +149,59 @@ Ammo().then(function(Ammo) {
 			physicsWorld.addRigidBody( body );
 		}
 		
+		static removeRigidBody(body) {
+			physicsWorld.removeRigidBody( body.userData.physicsBody );
+			
+			var index = rigidBodies.indexOf( body );
+			if (index > -1) rigidBodies.splice(index, 1);
+			scene.remove( body );
+			
+			delete body.userData.physicsBody;
+			//body = null;
+		}
+		
 		destruir () {
-			removeRigidBody( this._mesh );
+			obj3DT.removeRigidBody( this._mesh );
 			this._mesh = null;
+		}
+		
+		set mass(massa) {
+			
+			//var pBody = body.userData.physicsBody;
+
+		    //console.log("mudar massa do objeto " + body + " para:" + mass);
+
+		    //physicsWorld.removeRigidBody(body);
+
+		    var inercia = new Ammo.btVector3( 0, 0, 0 );
+		    this.body.getCollisionShape().calculateLocalInertia(massa, inercia);
+		    this.body.setMassProps(massa, inercia);
+		    
+		    this.body.setLinearVelocity( new Ammo.btVector3( 0, 0, 0 ) );
+		    this.body.setAngularVelocity( new Ammo.btVector3( 0, 0, 0 ) );
+
+		    //physicsWorld.addRigidBody(body);
+		}
+		
+		set posicao(novaPosicao) {
+			// Remove e cria de novo
+			obj3DT.removeRigidBody( this._mesh );
+			
+			this._pos = novaPosicao;
+			this.novo();
+		}
+		
+		grudar( on=true ) {
+			if (on) {
+				// Mudar a massa da lança para 0.0 para ela "grudar" no teto
+				this._grudada = true;
+				this.mass = 0.0;
+				console.log('grude');
+			} else {
+				this._grudada = false;
+				//changeMassObject(this._mesh, lanca_massa);
+				this.mass = lanca_massa;
+			}
 		}
 	}
 	
@@ -137,17 +221,6 @@ Ammo().then(function(Ammo) {
 			this._grudada = false;
 		}
 		
-		grudar( on=true ) {
-			if (on) {
-				// Mudar a massa da lança para 0.0 para ela "grudar" no teto
-				this._grudada = true;
-				changeMassObject(this._mesh, 0.0);
-			} else {
-				this._grudada = false;
-				changeMassObject(this._mesh, lanca_massa);
-			}
-		}
-		
 		destruir () {
 			this.grudar( false );
 			super.destruir();
@@ -155,7 +228,7 @@ Ammo().then(function(Ammo) {
 	}
 	
 	class cordaT extends obj3DT {
-		constructor(tamanho, posI, posF) {
+		constructor(tamanho, posI, posF, segmentos) {
 			// Grafico
 			var corda_geo = new THREE.BufferGeometry();
 			var corda_pontos  = [];
@@ -173,17 +246,69 @@ Ammo().then(function(Ammo) {
 			var cordaMesh = new THREE.LineSegments( corda_geo, new THREE.LineBasicMaterial( { color: 0x000000 } ) );
 			
 			// corda - physics
-			var ropePos = bola.pos.clone();
-			ropePos.y += bola_raio;
-			
 			var softBodyHelpers = new Ammo.btSoftBodyHelpers();
 			var ropeSoftBody = softBodyHelpers.CreateRope( physicsWorld.getWorldInfo(), posI, posF, corda_segmentos - 1, 0 );
+/* Create nodes	*
+let r = segmentos + 1; // const int		r=res+2;
+let x = []; //btVector3*		x=new btVector3[r];
+let m = []; //btScalar*		m=new btScalar[r];
+
+for(i=0;i<r;++i) {
+	let	t = i / (r - 1);
+	x[i] = THREE.Math.lerp(posI, posF, t);
+	m[i] = 1;
+}
 			
+var ropeSoftBody = new Ammo.btSoftBody(physicsWorld.getWorldInfo(), r, x, m);
 			
+/* Create links	*
+for(i=1;i<r;++i) {
+	ropeSoftBody.appendLink(i-1, i);
+}			
+*/			
 			super(cordaMesh, ropeSoftBody, posI, corda_massa, true);
-			this._tamanho = tamanho;
-			this._posI    = posI;
-			this._posF    = posF;
+			this._tamanho   = tamanho;
+			this._segmentos = segmentos;
+			
+			this._nos = [];
+			var geometry = new THREE.SphereGeometry( 3, 16, 16 );
+			var material = new THREE.MeshBasicMaterial( {color: 0xffff00} );
+			for ( var i = 0; i < corda_segmentos + 1; i++ ) {
+				var sphere = new THREE.Mesh( geometry, material );
+				this._nos[i] = sphere;
+				scene.add( sphere );
+			}
+		}
+		
+		get posF() {
+			var nos = this.body.get_m_nodes();
+			var no  = nos.at(nos.size() - 1);
+			var noPos = no.get_m_x();
+			
+			return new THREE.Vector3(noPos.x(), noPos.y(), noPos.z()); 
+		}
+
+		// Remover um "Nó" da corda, do final
+		diminuir() {
+			corda_segmentos--;
+			
+			// Remover da fisica
+			this.body.get_m_anchors().clear();
+			var vertices = this.body.get_m_nodes();
+			
+			var nos = this.body.get_m_nodes();
+			var tot = nos.size();
+			
+			// Remover a bolinha "nó"
+			scene.remove(this._nos[tot-1]);
+			delete this._nos[tot-1];
+			
+			// Remover do MESH da corda
+			var corda_pontos = [];
+			for ( var i = 0; i < tot-1; i++ )
+				corda_pontos.push( 0,0,0 );
+			this._mesh.geometry.removeAttribute('position');
+			this._mesh.geometry.addAttribute( 'position', new THREE.BufferAttribute( new Float32Array( corda_pontos ), 3 ) );
 		}
 		
 		destruir () {
@@ -194,33 +319,40 @@ Ammo().then(function(Ammo) {
 	
 	class lacoT {
 		novoLaco (posF, tamanho) {
-			this._posI = new Ammo.btVector3( bola.x, bola.y + bola_raio, 0 );
-			this._posF = posF;
-			this._tamanho = tamanho;
-			
-			if (this._lanca) this._lanca.destruir();
-			if (this._corda) this._corda.destruir();
-
 			// Lanca
 			var poslanca = new THREE.Vector3(posF.x(), posF.y() + lanca_raio, 0);
+			if (this._lanca) this._lanca.destruir();
 			this._lanca = new lancaT(lanca_raio, poslanca, new THREE.MeshPhongMaterial( { color: 0xdddddd } ), lanca_massa);
 
 			// corda
-			this._corda = new cordaT(tamanho, this._posI, this._posF);
+			this.novaCorda(tamanho);
+		}
+		
+		novaCorda(tamanho) {
+			var posI = new Ammo.btVector3( bola.x, bola.y + bola_raio, 0 );
+			var posF = new Ammo.btVector3( this._lanca.x, this._lanca.y - lanca_raio, 0 );
 			
+			if (this._corda) this._corda.destruir();
+			this._corda = new cordaT(tamanho, posI, posF, corda_segmentos);
+			
+			this.colar();
+		}
+		
+		colar() {
 			// "Colar" as pontas da corda nas bolinhas
 			var influence = 1;
-			this._corda.body.appendAnchor( 0, bola.body, true, influence );
+			this._corda.body.get_m_anchors().clear();
+			this._corda.body.appendAnchor(               0,        bola.body, true, influence );
 			this._corda.body.appendAnchor( corda_segmentos, this._lanca.body, true, influence );
 		}
 		
 		lancar (tamanho, direcao, forca) {
 			var ropeEnd = new Ammo.btVector3( bola.x, bola.y + bola_raio + 20, 0 );
-			this.novoLaco(ropeEnd, corda_tamanho);
+			this.novoLaco(ropeEnd, tamanho);
 			
 			// "Enrolar" a corda!
 			var nodes = this._corda.body.get_m_nodes();
-			var segmentLength = corda_tamanho / corda_segmentos;
+			var segmentLength = tamanho / corda_segmentos;
 			var ropePos = bola.pos.clone();
 			ropePos.y += bola_raio;
 			var v = nodes.at(0);
@@ -240,16 +372,83 @@ Ammo().then(function(Ammo) {
 		get grudado() {
 			return this._lanca._grudada;
 		}
+		
+		_delay() {
+			var agora = Date.now();
+			if (!this._tsdelay) this._tsdelay = 0;
+			if (agora > this._tsdelay) {
+				this._tsdelay = agora + 500;
+				return false;
+			}
+			return true;
+		}
+		
+		aumentar() {
+			if (this._delay()) return;
+				
+			//novaCorda(tamanho);
+			console.log('laco.aumentar()');
+		}
+		diminuir() {
+			if (this._delay()) return;
+			
+			console.log('laco.diminuir()');
+			
+			// Remover um segmento da corda
+			this._corda.diminuir();
+			
+			// Mover a bola para o nó acima na corda
+			var pb = bola.body.getWorldTransform().getOrigin();
+			bola.posicao = new THREE.Vector3(pb.x(), pb.y()+20, 0);
+
+			// Colar as pontas
+			this.colar();
+		}
+		
+		grudar( on=true ) {
+			if(this.grudado) return;
+			
+			var c1 = this._lanca.x - bola.x;
+			var c2 = (this._lanca.y - lanca_raio) - (bola.y + bola_raio);
+			
+			// Criar nova corda com a distancia certa entre a bola e a lanca
+			var distanciaBolaLanca = Math.sqrt(c1*c1 + c2*c2);
+			
+			var ropeEnd = new Ammo.btVector3( this._lanca.x, this._lanca.y - lanca_raio, 0 );
+			this.novoLaco(ropeEnd, distanciaBolaLanca);
+			
+			this._lanca.grudar(on);
+		}
 	}
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
 	
 	function initPhysics() {
 		// Physics configuration
 		collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();
-		dispatcher = new Ammo.btCollisionDispatcher( collisionConfiguration );
+		dispatcher             = new Ammo.btCollisionDispatcher( collisionConfiguration );
+		
 		broadphase = new Ammo.btDbvtBroadphase();
-		solver = new Ammo.btSequentialImpulseConstraintSolver();
+		
+		solver         = new Ammo.btSequentialImpulseConstraintSolver();
 		softBodySolver = new Ammo.btDefaultSoftBodySolver();
+		
 		physicsWorld = new Ammo.btSoftRigidDynamicsWorld( dispatcher, broadphase, solver, collisionConfiguration, softBodySolver);
+		
 		physicsWorld.setGravity( new Ammo.btVector3( 0, gravityConstant, 0 ) );
 		physicsWorld.getWorldInfo().set_m_gravity( new Ammo.btVector3( 0, gravityConstant, 0 ) );
 	}
@@ -274,6 +473,8 @@ Ammo().then(function(Ammo) {
 		alvoCamera = new THREE.Vector3( 0, 0, 0 );
 		camera.lookAt( alvoCamera );
 
+		
+		
 		scene.background = new THREE.Color( 0xf0f0f0 );
 
 		var ambientLight = new THREE.AmbientLight( 0xcccccc, 0.4 );
@@ -282,7 +483,115 @@ Ammo().then(function(Ammo) {
 		var pointLight = new THREE.PointLight( 0xffffff, 0.8 );
 		camera.add( pointLight );
 		scene.add( camera );
+		
+		
+		
+		// SCENE (RENDER TARGET)
+		sceneRenderTarget = new THREE.Scene();
+		cameraOrtho = new THREE.OrthographicCamera( SCREEN_WIDTH / - 2, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, SCREEN_HEIGHT / - 2, -10000, 10000 );
+		cameraOrtho.position.z = 100;
+		sceneRenderTarget.add( cameraOrtho );
+		
+		
+		// HEIGHT + NORMAL MAPS
+
+		var normalShader = THREE.NormalMapShader;
+
+		var rx = 128, ry = 128;
+		var pars = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBFormat };
+
+		heightMap  = new THREE.WebGLRenderTarget( rx, ry, pars );
+		heightMap.texture.generateMipmaps = false;
+
+		normalMap = new THREE.WebGLRenderTarget( rx, ry, pars );
+		normalMap.texture.generateMipmaps = false;
+
+		uniformsNoise = {
+			time:   { value: 1.0 },
+			scale:  { value: new THREE.Vector2( 1.5, 1.5 ) },
+			offset: { value: new THREE.Vector2( 0, 0 ) }
+		};
+
+		uniformsNormal = THREE.UniformsUtils.clone( normalShader.uniforms );
+
+		uniformsNormal.height.value = 0.05;
+		uniformsNormal.resolution.value.set( rx, ry );
+		uniformsNormal.heightMap.value = heightMap.texture;
+
+		var vertexShader = document.getElementById( 'vertexShader' ).textContent;
+
+		// TEXTURES
+
+		var loadingManager = new THREE.LoadingManager( function(){
+			terrain.visible = true;
+		});
+		var textureLoader = new THREE.TextureLoader( loadingManager );
+
+		var specularMap = new THREE.WebGLRenderTarget( 2048, 2048, pars );
+		specularMap.texture.generateMipmaps = false;
+
+		var diffuseTexture1 = textureLoader.load( "textures/terrain/grasslight-big.jpg");
+		var diffuseTexture2 = textureLoader.load( "textures/terrain/backgrounddetailed6.jpg" );
+		var detailTexture = textureLoader.load( "textures/terrain/grasslight-big-nm.jpg" );
+
+		diffuseTexture1.wrapS = diffuseTexture1.wrapT = THREE.RepeatWrapping;
+		diffuseTexture2.wrapS = diffuseTexture2.wrapT = THREE.RepeatWrapping;
+		detailTexture.wrapS = detailTexture.wrapT = THREE.RepeatWrapping;
+		specularMap.texture.wrapS = specularMap.texture.wrapT = THREE.RepeatWrapping;
+
+		// TERRAIN SHADER
+
+		var terrainShader = THREE.ShaderTerrain[ "terrain" ];
+
+		uniformsTerrain = THREE.UniformsUtils.clone( terrainShader.uniforms );
+
+		uniformsTerrain[ 'tNormal' ].value = normalMap.texture;
+		uniformsTerrain[ 'uNormalScale' ].value = 3.5;
+
+		uniformsTerrain[ 'tDisplacement' ].value = heightMap.texture;
+
+		uniformsTerrain[ 'tDiffuse1' ].value = diffuseTexture1;
+		uniformsTerrain[ 'tDiffuse2' ].value = diffuseTexture2;
+		uniformsTerrain[ 'tSpecular' ].value = specularMap.texture;
+		uniformsTerrain[ 'tDetail' ].value = detailTexture;
+
+		uniformsTerrain[ 'enableDiffuse1' ].value = true;
+		uniformsTerrain[ 'enableDiffuse2' ].value = true;
+		uniformsTerrain[ 'enableSpecular' ].value = true;
+
+		uniformsTerrain[ 'diffuse' ].value.setHex( 0xffffff );
+		uniformsTerrain[ 'specular' ].value.setHex( 0xffffff );
+
+		uniformsTerrain[ 'shininess' ].value = 30;
+
+		uniformsTerrain[ 'uDisplacementScale' ].value = 375;
+
+		uniformsTerrain[ 'uRepeatOverlay' ].value.set( 6, 6 );
+
+		var params = [
+			[ 'heightmap', 	document.getElementById( 'fragmentShaderNoise' ).textContent, 	vertexShader, uniformsNoise, false ],
+			[ 'normal', 	normalShader.fragmentShader,  normalShader.vertexShader, uniformsNormal, false ],
+			[ 'terrain', 	terrainShader.fragmentShader, terrainShader.vertexShader, uniformsTerrain, true ]
+		 ];
+
+		for( var i = 0; i < params.length; i ++ ) {
+			var material = new THREE.ShaderMaterial( {
+				uniforms: 		params[ i ][ 3 ],
+				vertexShader: 	params[ i ][ 2 ],
+				fragmentShader: params[ i ][ 1 ],
+				lights: 		params[ i ][ 4 ],
+				fog: 			true
+				} );
+
+			mlib[ params[ i ][ 0 ] ] = material;
+		}
 	}
+	
+	
+	
+	
+	
+	
 	
 	function initObjs() {
 		var pos  = new THREE.Vector3();
@@ -305,6 +614,7 @@ Ammo().then(function(Ammo) {
 		teto = createParalellepiped( totCubos * tamanhoGrid, 4, 100, 0, pos, quat, material );
 		teto.castShadow = true;
 		teto.receiveShadow = true;
+		teto.userData.physicsBody.setUserIndex(ID_TETO);
 		
 		// Lança
 		laco = new lacoT();
@@ -313,9 +623,9 @@ Ammo().then(function(Ammo) {
 //lanca.userData.physicsBody.setLinearVelocity( new Ammo.btVector3( 250, 250, 0 ) );
 		
 		
-		var geometryCyl = new THREE.CylinderGeometry( tamanhoGrid, tamanhoGrid, tamanhoGrid, 32, 32, true, 0, Math.PI  );
+		/*var geometryCyl = new THREE.CylinderGeometry( tamanhoGrid, tamanhoGrid, tamanhoGrid, 32, 32, true, 0, Math.PI  );
 		geometryCyl.scale(0.33, 1, 1);
-		var materialCyl = new THREE.MeshBasicMaterial( {color: 0x999999} );
+		var materialCyl = new THREE.MeshBasicMaterial( {color: 0x999999} );*/
 		
 		// GRID Cubos(100x100x100)
 		var geometryCube = new THREE.EdgesGeometry( new THREE.BoxBufferGeometry( tamanhoGrid, tamanhoGrid, tamanhoGrid ) );
@@ -332,11 +642,11 @@ Ammo().then(function(Ammo) {
 			
 			
 			
-			var cylinder = new THREE.Mesh( geometryCyl, materialCyl );
+			/*var cylinder = new THREE.Mesh( geometryCyl, materialCyl );
 			cylinder.rotation.z = Math.PI/2;
 			cylinder.receiveShadow = true;
 			cylinder.position.set( c * tamanhoGrid, -tamanhoGrid, 0 );
-			scene.add( cylinder );
+			scene.add( cylinder );*/
 			
 			// "teto"
 			cube = new THREE.LineSegments(
@@ -356,6 +666,37 @@ Ammo().then(function(Ammo) {
 		ground.rotation.x = -0.98 * Math.PI / 2; // rotates X/Y to X/Z
 		ground.receiveShadow = true;
 		scene.add( ground );*/
+
+		pos.set( 0,-tamanhoGrid,0 );
+		quat.set( 0, 0, 0, 1 );
+		var chao = createParalellepiped( totCubos * tamanhoGrid, 4, 100, 0, pos, quat, material );
+		chao.castShadow = true;
+		chao.receiveShadow = true;
+		
+		
+		
+		
+		
+		var plane = new THREE.PlaneBufferGeometry( SCREEN_WIDTH, SCREEN_HEIGHT/2 );
+
+		quadTarget = new THREE.Mesh( plane, new THREE.MeshBasicMaterial( { color: 0x000000 } ) );
+		quadTarget.position.z = -500;
+		sceneRenderTarget.add( quadTarget );
+
+		// TERRAIN MESH
+
+		var geometryTerrain = new THREE.PlaneBufferGeometry( 6000, 600, 256, 20 );
+
+		THREE.BufferGeometryUtils.computeTangents( geometryTerrain );
+
+		terrain = new THREE.Mesh( geometryTerrain, mlib[ 'terrain' ] );
+		terrain.position.set( 0, -185, 0 );
+		terrain.rotation.x = -Math.PI / 2;
+		terrain.visible = false;
+		scene.add( terrain );
+		
+		
+		
 
 		renderer = new THREE.WebGLRenderer( { antialias: true } );
 		renderer.shadowMap.enabled = true;
@@ -381,41 +722,18 @@ Ammo().then(function(Ammo) {
 		return threeObject;
 	}
 	
-	function removeRigidBody(body) {
-		physicsWorld.removeRigidBody( body.userData.physicsBody );
-		
-		var index = rigidBodies.indexOf( body );
-		if (index > -1) rigidBodies.splice(index, 1);
-		scene.remove( body );
-		
-		delete body.userData.physicsBody;
-		body = null;
-	}
 	
-	function changeMassObject(body, mass) {
-		var pBody = body.userData.physicsBody;
+	
 
-	    //console.log("mudar massa do objeto " + body + " para:" + mass);
-
-	    //physicsWorld.removeRigidBody(body);
-
-	    var inertia = new Ammo.btVector3( 0, 0, 0 );
-	    pBody.getCollisionShape().calculateLocalInertia(mass, inertia);
-	    pBody.setMassProps(mass, inertia);
-	    
-	    pBody.setLinearVelocity( new Ammo.btVector3( 0, 0, 0 ) );
-	    pBody.setAngularVelocity( new Ammo.btVector3( 0, 0, 0 ) );
-
-	    //physicsWorld.addRigidBody(body);
-	}
 
 	function onWindowResize() {
+		SCREEN_WIDTH = window.innerWidth;
+		SCREEN_HEIGHT = window.innerHeight;
 
-		camera.aspect = window.innerWidth / window.innerHeight;
+		renderer.setSize( SCREEN_WIDTH, SCREEN_HEIGHT );
+
+		camera.aspect = SCREEN_WIDTH / SCREEN_HEIGHT;
 		camera.updateProjectionMatrix();
-
-		renderer.setSize( window.innerWidth, window.innerHeight );
-
 	}
 	
 	function deteremineScreenCoordinate(object) {
@@ -430,8 +748,25 @@ Ammo().then(function(Ammo) {
     }
 
 	function initInput() {
+		window.addEventListener( 'keydown', function( event ) {
+			switch ( event.keyCode ) {
+				case 81: // Q
+					esticaCorda = 1;
+				break;
+				
+				case 65: // A
+					esticaCorda = - 1;
+				break;
+			}
+		}, false );
+		
+		window.addEventListener( 'keyup', function( event ) {
+			esticaCorda = 0;
+		}, false );
+		
+		
 		window.addEventListener( 'mousedown', function( event ) {
-			var tamanhoLaco = 500;
+			var tamanhoLaco = 250;
 			//var raycaster = new THREE.Raycaster();
 			
 			
@@ -552,14 +887,43 @@ Ammo().then(function(Ammo) {
 					}
 
 				} );*/
+		
+		/*if ( terrain.visible ) {
+			var fLow = 0.1, fHigh = 0.8;
+			lightVal = THREE.Math.clamp( lightVal + 0.5 * delta * lightDir, fLow, fHigh );
+			
+			var valNorm = ( lightVal - fLow ) / ( fHigh - fLow );
+			scene.background.setHSL( 0.1, 0.5, lightVal );
+			scene.fog.color.setHSL( 0.1, 0.5, lightVal );
+			directionalLight.intensity = THREE.Math.mapLinear( valNorm, 0, 1, 0.1, 1.15 );
+			pointLight.intensity = THREE.Math.mapLinear( valNorm, 0, 1, 0.9, 1.5 );
+			uniformsTerrain[ 'uNormalScale' ].value = THREE.Math.mapLinear( valNorm, 0, 1, 0.6, 3.5 );
 
-		camera.position.x = bola.x - bola_posI;
+			if ( updateNoise ) {
+				/*animDelta = THREE.Math.clamp( animDelta + 0.00075 * animDeltaDir, 0, 0.05 );
+				uniformsNoise[ 'time' ].value += delta * animDelta;
+				uniformsNoise[ 'offset' ].value.x += delta * 0.05;
+				uniformsTerrain[ 'uOffset' ].value.x = 4 * uniformsNoise[ 'offset' ].value.x;/
+				quadTarget.material = mlib[ 'heightmap' ];
+				renderer.render( sceneRenderTarget, cameraOrtho, heightMap, true );
+				quadTarget.material = mlib[ 'normal' ];
+				renderer.render( sceneRenderTarget, cameraOrtho, normalMap, true );
+			}
+		}*/
+		
+		
+
+		//camera.position.x = bola.x - bola_posI;
 		renderer.render( scene, camera );
 		
 		time += deltaTime;
 	}
 	
 	function updatePhysics( deltaTime ) {
+		// Esticar ou encolher a corda?
+		if( esticaCorda ==  1 ) laco.aumentar();
+		if( esticaCorda == -1 ) laco.diminuir();	
+		
 		// Step world
 		physicsWorld.stepSimulation( deltaTime * 10, 2, 1/30 );
 		
@@ -570,11 +934,12 @@ Ammo().then(function(Ammo) {
 				var obj1 = colisao.getBody0();
 				var obj2 = colisao.getBody1();
 				
+				var id1 = obj1.getUserIndex();
+				var id2 = obj2.getUserIndex();
+				
 				// Verificar por colisoes da Lança com o Teto
-				if((obj1.ptr === laco._lanca.body.ptr && obj2.ptr === teto.userData.physicsBody.ptr) ||
-						(obj1.ptr === teto.userData.physicsBody.ptr && obj2.ptr === laco._lanca.body.ptr)) {
-					
-					laco._lanca.grudar();
+				if(id1 == ID_TETO && id2 == 0) {
+					laco.grudar();
 				}
 			}
 		}
@@ -592,6 +957,9 @@ Ammo().then(function(Ammo) {
 				ropePositions[ indexFloat++ ] = nodePos.x();
 				ropePositions[ indexFloat++ ] = nodePos.y();
 				ropePositions[ indexFloat++ ] = 0;
+				
+				var no = laco._corda._nos[i];
+				no.position.set(nodePos.x(),nodePos.y(),0);
 			}
 			laco._corda._mesh.geometry.attributes.position.needsUpdate = true;
 		//}
@@ -611,14 +979,22 @@ Ammo().then(function(Ammo) {
 		}
 	}
 	
+	function initDebug() {
+		setInterval(function(){
+				var v = deteremineScreenCoordinate(bola._mesh);
+				console.log(v.x + " " + v.y + " " + v.z);
+			}, 1000);
+	}
+	
 	initPhysics();
 	initScene();
 	initObjs();
 	initInput();
+	
+	//initDebug();
+	
 	animate();
 	
-/*	setInterval(function(){
-		var v = deteremineScreenCoordinate(bola._mesh);
-		console.log(v.x + " " + v.y + " " + v.z);
-	}, 1000);*/
+
 });
+

@@ -9,6 +9,7 @@
 </head>
 <body>
  
+ http://www.smartjava.org/content/threejs-render-real-world-terrain-heightmap-using-open-data
 <div id="main_map">
  
 </div>
@@ -39,6 +40,10 @@
  
     var n = 0;
     initMap();
+    
+    for(i=0, j=2; i < 32; i += 4, j += 3) {
+        console.log(i+" - "+j);
+    }
  
     // Wait until everything is loaded before continuing
     function loaded() {
