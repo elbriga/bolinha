@@ -4,9 +4,27 @@ if ( ! Detector.webgl )
 if ( ! Date.now )
 	Date.now = function() { return new Date().getTime(); }
 
-
-
 Ammo().then(function(Ammo) {
+	
+	
+	
+// Heightfield parameters
+var terrainWidthExtents = 2000;
+var terrainDepthExtents = 80;
+var terrainWidth = 2000;
+var terrainDepth = 80;
+var terrainHalfWidth = terrainWidth / 2;
+var terrainHalfDepth = terrainDepth / 2;
+var terrainMaxHeight = -50;
+var terrainMinHeight = -100;
+
+var terrainMesh;
+
+var heightData = null;
+var ammoHeightData = null;
+	
+	
+	
 	var SCREEN_WIDTH = window.innerWidth;
 	var SCREEN_HEIGHT = window.innerHeight;
 	
@@ -389,372 +407,7 @@ Ammo().then(function(Ammo) {
 			this._lanca.grudar(on);
 		}
 	}
-	
-	
-	
-	class TerrenoDinamico {
-		constructor() {
-			/*var animDelta = 0, animDeltaDir = -1;
-			var lightVal = 0, lightDir = 1;
-			var updateNoise = true;
-			var animateTerrain = false;*/
-			this.mlib = {};
-			
-			// SCENE (RENDER TARGET)
-			this.sceneRenderTarget = new THREE.Scene();
-			this.cameraOrtho = new THREE.OrthographicCamera( SCREEN_WIDTH / - 2, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, SCREEN_HEIGHT / - 2, -10000, 10000 );
-			this.cameraOrtho.position.z = 100;
-			this.sceneRenderTarget.add( this.cameraOrtho );
-			
-			
-			// HEIGHT + NORMAL MAPS
-			var normalShader = THREE.NormalMapShader;
 
-			var rx = 128, ry = 128;
-			var pars = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBFormat };
-
-			this.heightMap  = new THREE.WebGLRenderTarget( rx, ry, pars );
-			this.heightMap.texture.generateMipmaps = false;
-
-			this.normalMap = new THREE.WebGLRenderTarget( rx, ry, pars );
-			this.normalMap.texture.generateMipmaps = false;
-
-			this.uniformsNoise = {
-				time:   { value: 1.0 },
-				scale:  { value: new THREE.Vector2( 1.5, 1.5 ) },
-				offset: { value: new THREE.Vector2( 0, 0 ) }
-			};
-
-			this.uniformsNormal = THREE.UniformsUtils.clone( normalShader.uniforms );
-
-			this.uniformsNormal.height.value = 0.05;
-			this.uniformsNormal.resolution.value.set( rx, ry );
-			this.uniformsNormal.heightMap.value = this.heightMap.texture;
-
-			var vertexShader = document.getElementById( 'vertexShaderNoise' ).textContent;
-
-			// TEXTURES
-			var specularMap = new THREE.WebGLRenderTarget( 2048, 2048, pars );
-			specularMap.texture.generateMipmaps = false;
-
-			var diffuseTexture1 = textureLoader.load( "textures/terrain/grasslight-big.jpg");
-			var diffuseTexture2 = textureLoader.load( "textures/terrain/backgrounddetailed6.jpg" );
-			var detailTexture = textureLoader.load( "textures/terrain/grasslight-big-nm.jpg" );
-
-			diffuseTexture1.wrapS = diffuseTexture1.wrapT = THREE.RepeatWrapping;
-			diffuseTexture2.wrapS = diffuseTexture2.wrapT = THREE.RepeatWrapping;
-			detailTexture.wrapS = detailTexture.wrapT = THREE.RepeatWrapping;
-			specularMap.texture.wrapS = specularMap.texture.wrapT = THREE.RepeatWrapping;
-
-			// TERRAIN SHADER
-			var terrainShader = THREE.ShaderTerrain[ "terrain" ];
-
-			this.uniformsTerrain = THREE.UniformsUtils.clone( terrainShader.uniforms );
-
-			this.uniformsTerrain[ 'tNormal' ].value = this.normalMap.texture;
-			this.uniformsTerrain[ 'uNormalScale' ].value = 3.5;
-
-			this.uniformsTerrain[ 'tDisplacement' ].value = this.heightMap.texture;
-
-			this.uniformsTerrain[ 'tDiffuse1' ].value = diffuseTexture1;
-			this.uniformsTerrain[ 'tDiffuse2' ].value = diffuseTexture2;
-			this.uniformsTerrain[ 'tSpecular' ].value = specularMap.texture;
-			this.uniformsTerrain[ 'tDetail' ].value = detailTexture;
-
-			this.uniformsTerrain[ 'enableDiffuse1' ].value = true;
-			this.uniformsTerrain[ 'enableDiffuse2' ].value = true;
-			this.uniformsTerrain[ 'enableSpecular' ].value = true;
-
-			this.uniformsTerrain[ 'diffuse' ].value.setHex( 0xffffff );
-			this.uniformsTerrain[ 'specular' ].value.setHex( 0xffffff );
-
-			this.uniformsTerrain[ 'shininess' ].value = 30;
-
-			this.uniformsTerrain[ 'uDisplacementScale' ].value = 375;
-
-			this.uniformsTerrain[ 'uRepeatOverlay' ].value.set( 6, 6 );
-
-			var params = [
-				[ 'heightmap', 	document.getElementById( 'fragmentShaderNoise' ).textContent, 	vertexShader, this.uniformsNoise, false ],
-				[ 'normal', 	normalShader.fragmentShader,  normalShader.vertexShader, this.uniformsNormal, false ],
-				[ 'terrain', 	terrainShader.fragmentShader, terrainShader.vertexShader, this.uniformsTerrain, true ]
-			 ];
-
-			for( var i = 0; i < params.length; i ++ ) {
-				var material = new THREE.ShaderMaterial( {
-					uniforms: 		params[ i ][ 3 ],
-					vertexShader: 	params[ i ][ 2 ],
-					fragmentShader: params[ i ][ 1 ],
-					lights: 		params[ i ][ 4 ],
-					fog: 			false
-					} );
-
-				this.mlib[ params[ i ][ 0 ] ] = material;
-			}
-		}
-		
-		initPhysics() {
-			return;
-		}
-		
-		initMesh() {
-			var plane = new THREE.PlaneBufferGeometry( SCREEN_WIDTH, SCREEN_HEIGHT/2 );
-			this.quadTarget = new THREE.Mesh( plane, new THREE.MeshBasicMaterial( { color: 0x000000 } ) );
-			this.quadTarget.position.z = -500;
-			this.sceneRenderTarget.add( this.quadTarget );
-
-			// TERRAIN MESH
-			var geometryTerrain = new THREE.PlaneBufferGeometry( 6000, 1000, 256, 20 );
-			THREE.BufferGeometryUtils.computeTangents( geometryTerrain );
-			this.mesh = new THREE.Mesh( geometryTerrain, this.mlib[ 'terrain' ] );
-			this.mesh.scale.set( 0.25, 0.15, 0.15 );
-			this.mesh.position.set( 0, -tamanhoGrid, 0 );
-			this.mesh.rotation.x = -Math.PI / 2;
-			scene.add( this.mesh );
-		}
-		
-		refreshRender() {
-			this.quadTarget.material = this.mlib[ 'heightmap' ];
-			renderer.render( this.sceneRenderTarget, this.cameraOrtho, this.heightMap, true );
-	
-			this.quadTarget.material = this.mlib[ 'normal' ];
-			renderer.render( this.sceneRenderTarget, this.cameraOrtho, this.normalMap, true );
-		}
-		
-		animate() {
-			return;
-			
-			var fLow = 0.1, fHigh = 0.8;
-			lightVal = THREE.Math.clamp( lightVal + 0.5 * delta * lightDir, fLow, fHigh );
-			
-			var valNorm = ( lightVal - fLow ) / ( fHigh - fLow );
-			scene.background.setHSL( 0.1, 0.5, lightVal );
-			scene.fog.color.setHSL( 0.1, 0.5, lightVal );
-			directionalLight.intensity = THREE.Math.mapLinear( valNorm, 0, 1, 0.1, 1.15 );
-			pointLight.intensity = THREE.Math.mapLinear( valNorm, 0, 1, 0.9, 1.5 );
-			this.uniformsTerrain[ 'uNormalScale' ].value = THREE.Math.mapLinear( valNorm, 0, 1, 0.6, 3.5 );
-	
-			if ( updateNoise ) {
-				animDelta = THREE.Math.clamp( animDelta + 0.00075 * animDeltaDir, 0, 0.05 );
-				this.uniformsNoise[ 'time' ].value += delta * animDelta;
-				this.uniformsNoise[ 'offset' ].value.x += delta * 0.05;
-				this.uniformsTerrain[ 'uOffset' ].value.x = 4 * this.uniformsNoise[ 'offset' ].value.x;
-				
-				this.refreshRender();
-			}
-		}
-		
-		set visivel(on) {
-			this.mesh.visible = on;
-		}
-	}
-	
-	
-	
-	
-	
-	class TerrenoFromTexture {
-		constructor() {
-			this.posY = -100;
-			// Heightfield parameters
-			this.terrainWidth = 2000;
-			this.terrainDepth = 80;
-			this.terrainWidthExtents = 2000;
-			this.terrainDepthExtents = 80;
-			this.terrainMaxHeight = 128;
-			this.terrainMinHeight = 0;
-			
-			this.terrainHalfWidth = this.terrainWidth / 2;
-			this.terrainHalfDepth = this.terrainDepth / 2;
-			
-			this.ammoHeightData = null;
-			
-			/*this.heightData = this.generateHeight(
-					this.terrainWidth, this.terrainDepth,
-					this.terrainMinHeight, this.terrainMaxHeight
-				);
-			this.init();*/
-			
-			self = this;
-			textureLoader.load( "assets/fases/fase01.png", function ( texture ) {
-					    //var canvas = document.createElement("canvas");
-						var canvas = document.getElementById("canvas");
-					    canvas.width  = texture.image.naturalWidth;
-					    canvas.height = texture.image.naturalHeight;
-					    // Copy the image contents to the canvas
-					    var ctx = canvas.getContext("2d");
-					    ctx.drawImage(texture.image, 0, 0);
-	
-					    var data8 = ctx.getImageData(0,0,canvas.width,canvas.height).data;
-					    
-					    var size = self.terrainWidth * self.terrainDepth;
-					    self.heightData = new Float32Array(size);
-					    
-					    var p = 0;
-					    var p2 = 0;
-					    for ( var j = 0; j < self.terrainDepth; j++ ) {
-							for ( var i = 0; i < self.terrainWidth; i++ ) {
-								self.heightData[p] = (255-data8[p2]) / 4;
-								p++;
-								p2 += 4;
-							}
-					    }
-					    
-					    /*self.heightData = self.generateHeight(
-								self.terrainWidth, self.terrainDepth,
-								self.terrainMinHeight, self.terrainMaxHeight
-							);*/
-					    
-					    self.init();
-					}
-				);
-		}
-		
-		refreshRender() { return; }
-		animate()       { return; }
-		initPhysics()   { return; }
-		initMesh()      { return; }
-		
-		init() {
-			// Create the terrain body
-			var groundShape = this.createTerrainShape();
-			var groundTransform = new Ammo.btTransform();
-			groundTransform.setIdentity();
-			// Shifts the terrain, since bullet re-centers it on its bounding box.
-			groundTransform.setOrigin( new Ammo.btVector3( 0, this.posY, 0 ) );
-			
-			var groundMass = 0;
-			var groundLocalInertia = new Ammo.btVector3( 0, 0, 0 );
-			var groundMotionState = new Ammo.btDefaultMotionState( groundTransform );
-			
-			this.body = new Ammo.btRigidBody( new Ammo.btRigidBodyConstructionInfo( groundMass, groundMotionState, groundShape, groundLocalInertia ) );
-			physicsWorld.addRigidBody( this.body );
-
-			
-		
-			var geometry = new THREE.PlaneBufferGeometry( this.terrainWidthExtents, this.terrainDepthExtents, this.terrainWidth - 1, this.terrainDepth - 1 );
-			geometry.rotateX( -Math.PI / 2 );
-
-			var vertices = geometry.attributes.position.array;
-
-			for ( var i = 0, j = 0, l = vertices.length; i < l; i++, j += 3 ) {
-
-				// j + 1 because it is the y component that we modify
-				vertices[ j + 1 ] = this.heightData[ i ];
-
-			}
-
-			geometry.computeVertexNormals();
-
-			var groundMaterial = new THREE.MeshPhongMaterial( { color: 0xC7C7C7 } );
-			this.mesh = new THREE.Mesh( geometry, groundMaterial );
-			this.mesh.position.set(0, this.posY, 0);
-			this.mesh.receiveShadow = true;
-			this.mesh.castShadow = true;
-
-			scene.add( this.mesh );
-
-			var self = this;
-			textureLoader.load("textures/grid.png", function ( texture ) {
-				texture.wrapS = THREE.RepeatWrapping;
-				texture.wrapT = THREE.RepeatWrapping;
-				texture.repeat.set( self.terrainWidth - 1, self.terrainDepth - 1 );
-				groundMaterial.map = texture;
-				groundMaterial.needsUpdate = true;
-			});
-		}
-		
-		
-		
-		generateHeight() {
-			// Generates the height data
-			var size = this.terrainWidth * this.terrainDepth;
-			var data = new Float32Array(size);
-
-			var hRange = this.terrainMaxHeight - this.terrainMinHeight;
-			var phaseMult = 12;
-
-			var p = 0;
-			for ( var j = 0; j < this.terrainDepth; j++ ) {
-				for ( var i = 0; i < this.terrainWidth; i++ ) {
-					/*/ Sino
-					var radius = Math.sqrt(
-							Math.pow( ( i - this.terrainHalfWidth ) / this.terrainHalfWidth, 2.0 ) +
-							Math.pow( ( j - this.terrainHalfDepth ) / this.terrainHalfDepth, 2.0 ) );
-
-					var height = ( Math.sin( radius * phaseMult ) + 1 ) * 0.5 * hRange + this.terrainMinHeight;*/
-					
-					// Bandeja
-					//var height = (j<3 || j>this.terrainDepth-3 || i<3 || i>this.terrainWidth-3) ? -1 : 4;
-					
-					// Tapete
-					var height = (Math.sin( i/32 ) + 1) * 0.5 * hRange + this.terrainMinHeight;
-
-					data[ p ] = height;
-					p++;
-				}
-			}
-
-			return data;
-
-		}
-		
-		createTerrainShape() {
-			// This parameter is not really used, since we are using PHY_FLOAT height data type and hence it is ignored
-			var heightScale = 1;
-
-			// Up axis = 0 for X, 1 for Y, 2 for Z. Normally 1 = Y is used.
-			var upAxis = 1;
-
-			// hdt, height data type. "PHY_FLOAT" is used. Possible values are "PHY_FLOAT", "PHY_UCHAR", "PHY_SHORT"
-			var hdt = "PHY_FLOAT";
-
-			// Set this to your needs (inverts the triangles)
-			var flipQuadEdges = false;
-
-			// Creates height data buffer in Ammo heap
-			this.ammoHeightData = Ammo._malloc(4 * this.terrainWidth * this.terrainDepth);
-
-			// Copy the javascript height data array to the Ammo one.
-			var p = 0;
-			var p2 = 0;
-			for ( var j = 0; j < this.terrainDepth; j++ ) {
-				for ( var i = 0; i < this.terrainWidth; i++ ) {
-
-					// write 32-bit float data to memory
-					Ammo.HEAPF32[ this.ammoHeightData + p2 >> 2 ] = this.heightData[ p ];
-
-					p++;
-
-					// 4 bytes/float
-					p2 += 4;
-				}
-			}
-
-			// Creates the heightfield physics shape
-			var heightFieldShape = new Ammo.btHeightfieldTerrainShape(
-					this.terrainWidth,
-					this.terrainDepth,
-					this.ammoHeightData,
-					heightScale,
-					this.terrainMinHeight,
-					this.terrainMaxHeight,
-					upAxis,
-					hdt,
-					flipQuadEdges
-				);
-
-			// Set horizontal scale
-			var scaleX = this.terrainWidthExtents / ( this.terrainWidth - 1 );
-			var scaleZ = this.terrainDepthExtents / ( this.terrainDepth - 1 );
-			heightFieldShape.setLocalScaling( new Ammo.btVector3( scaleX, 1, scaleZ ) );
-
-			heightFieldShape.setMargin( 0.05 );
-
-			return heightFieldShape;
-		}
-	}	
-	
 	
 	
 	
@@ -808,16 +461,6 @@ Ammo().then(function(Ammo) {
 		camera.add( pointLight );
 		scene.add( camera );
 		
-		
-		
-		
-		
-		
-		//terreno = new TerrenoDinamico();
-		terreno = new TerrenoFromTexture();
-		terreno.initPhysics();
-
-		
 		// Lava
 		uniforms = {
 				//fogDensity: { value: 0.45 },
@@ -834,32 +477,155 @@ Ammo().then(function(Ammo) {
 	
 	
 	
-	function createParalellepiped( sx, sy, sz, mass, pos, quat, material ) {
+	function createParalellepiped( sx, sy, sz, mass, pos, quat, material, solido=true ) {
 		var threeObject = new THREE.Mesh( new THREE.BoxBufferGeometry( sx, sy, sz, 1, 1, 1 ), material );
-		var shape = new Ammo.btBoxShape( new Ammo.btVector3( sx * 0.5, sy * 0.5, sz * 0.5 ) );
-		shape.setMargin( margin );
-		obj3DT.createRigidBody( threeObject, shape, mass, pos, quat );
+		if(solido) {
+			var shape = new Ammo.btBoxShape( new Ammo.btVector3( sx * 0.5, sy * 0.5, sz * 0.5 ) );
+			shape.setMargin( margin );
+			obj3DT.createRigidBody( threeObject, shape, mass, pos, quat );
+		} else {
+			threeObject.position.copy( pos );
+			scene.add( threeObject );
+		}
 		return threeObject;
 	}
+	
+	
+function generateHeight( width, depth, minHeight, maxHeight ) {
+	// Generates the height data (a sinus wave)
+	var size = width * depth;
+	var data = new Float32Array(size);
+
+	var hRange = maxHeight - minHeight;
+	var w2 = width / 2;
+	var d2 = depth / 2;
+	var phaseMult = 12;
+
+	var p = 0;
+	for ( var j = 0; j < depth; j++ ) {
+		for ( var i = 0; i < width; i++ ) {
+			var radius = Math.sqrt(
+					Math.pow( ( i - w2 ) / w2, 2.0 ) +
+					Math.pow( ( j - d2 ) / d2, 2.0 ) );
+			var height = ( Math.sin( radius * phaseMult ) + 1 ) * 0.5 * hRange + minHeight;
+			
+			//var height = (j<3 || j>depth-3 || i<3 || i>width-3) ? 3 : 0;
+			data[ p ] = height;
+			p++;
+		}
+	}
+
+	return data;
+}
+
+function createTerrainShape() {
+	// This parameter is not really used, since we are using PHY_FLOAT height data type and hence it is ignored
+	var heightScale = 1;
+
+	// Up axis = 0 for X, 1 for Y, 2 for Z. Normally 1 = Y is used.
+	var upAxis = 1;
+
+	// hdt, height data type. "PHY_FLOAT" is used. Possible values are "PHY_FLOAT", "PHY_UCHAR", "PHY_SHORT"
+	var hdt = "PHY_FLOAT";
+
+	// Set this to your needs (inverts the triangles)
+	var flipQuadEdges = false;
+
+	// Creates height data buffer in Ammo heap
+	ammoHeightData = Ammo._malloc(4 * terrainWidth * terrainDepth);
+
+	// Copy the javascript height data array to the Ammo one.
+	var p = 0;
+	var p2 = 0;
+	for ( var j = 0; j < terrainDepth; j++ ) {
+		for ( var i = 0; i < terrainWidth; i++ ) {
+			// write 32-bit float data to memory
+			Ammo.HEAPF32[ (ammoHeightData + p2) >> 2 ] = heightData[ p ];
+			p++;
+
+			// 4 bytes/float
+			p2 += 4;
+		}
+	}
+
+	// Creates the heightfield physics shape
+	var heightFieldShape = new Ammo.btHeightfieldTerrainShape(
+			terrainWidth,
+			terrainDepth,
+			ammoHeightData,
+			heightScale,
+			terrainMinHeight,
+			terrainMaxHeight,
+			upAxis,
+			hdt,
+			flipQuadEdges
+		);
+
+	// Set horizontal scale
+	/*var scaleX = terrainWidthExtents / ( terrainWidth - 1 );
+	var scaleZ = terrainDepthExtents / ( terrainDepth - 1 );
+	heightFieldShape.setLocalScaling( new Ammo.btVector3( scaleX, 1, scaleZ ) );*/
+	heightFieldShape.setMargin( 0.05 );
+
+	return heightFieldShape;
+}
 	
 	
 	function initObjs() {
 		var pos  = new THREE.Vector3();
 		var quat = new THREE.Quaternion();
 		
-		
-		// terreno
-		terreno.initMesh();
+//heightData = generateHeight( terrainWidth, terrainDepth, terrainMinHeight, terrainMaxHeight );
 
+// Terreno
+var geometry = new THREE.PlaneBufferGeometry( terrainWidthExtents, terrainDepthExtents, terrainWidth - 1, terrainDepth - 1 );
+geometry.rotateX( -Math.PI / 2 );
+
+var vertices = geometry.attributes.position.array;
+for ( var i = 0, j = 0, l = vertices.length; i < l; i++, j += 3 ) {
+	// j + 1 because it is the y component that we modify
+	vertices[ j + 1 ] = heightData[ i ];
+
+}
+
+geometry.computeVertexNormals();
+
+var groundMaterial = new THREE.MeshPhongMaterial( { color: 0xC7C7C7 } );
+terrainMesh = new THREE.Mesh( geometry, groundMaterial );
+terrainMesh.receiveShadow = true;
+terrainMesh.castShadow = true;
+
+scene.add( terrainMesh );
+
+textureLoader.load("textures/grid.png", function ( texture ) {
+	texture.wrapS = THREE.RepeatWrapping;
+	texture.wrapT = THREE.RepeatWrapping;
+	texture.repeat.set( terrainWidth - 1, terrainDepth - 1 );
+	groundMaterial.map = texture;
+	groundMaterial.needsUpdate = true;
+
+});
+
+var groundShape = createTerrainShape();
+var groundTransform = new Ammo.btTransform();
+groundTransform.setIdentity();
+// Shifts the terrain, since bullet re-centers it on its bounding box.
+groundTransform.setOrigin( new Ammo.btVector3( 0, ( terrainMaxHeight + terrainMinHeight ) / 2, 0 ) );
+var groundMass = 0;
+var groundLocalInertia = new Ammo.btVector3( 0, 0, 0 );
+var groundMotionState = new Ammo.btDefaultMotionState( groundTransform );
+var groundBody = new Ammo.btRigidBody( new Ammo.btRigidBodyConstructionInfo( groundMass, groundMotionState, groundShape, groundLocalInertia ) );
+physicsWorld.addRigidBody( groundBody );
+		
 		// Lava
 		var materialLava = new THREE.ShaderMaterial( {
 				uniforms: uniforms,
 				vertexShader: document.getElementById( 'vertexShaderLava' ).textContent,
 				fragmentShader: document.getElementById( 'fragmentShaderLava' ).textContent
 			});
-		pos.set( 0,-tamanhoGrid-48,0 );
+		pos.set( 0,-tamanhoGrid-20,0 );
 		quat.set( 0, 0, 0, 1 );
-		var chao = createParalellepiped( 8192, 100, 200, 0, pos, quat, materialLava );
+		var chao = createParalellepiped( 8192, 100, 200, 0, pos, quat, materialLava, false );
 		chao.castShadow = true;
 		chao.receiveShadow = true;
 		
@@ -952,11 +718,6 @@ Ammo().then(function(Ammo) {
 
 		stats = new Stats();
 		document.body.appendChild( stats.dom );
-		
-		
-		
-		// Terreno
-		terreno.refreshRender();
 	}
 	
 	
@@ -1115,8 +876,6 @@ Ammo().then(function(Ammo) {
 		// Lava
 		uniforms.time.value += (deltaTime * 2);
 		
-		terreno.animate();		
-
 		camera.position.x = bola.x - bola_posI;
 		renderer.render( scene, camera );
 		//renderer.clear();
@@ -1192,16 +951,47 @@ Ammo().then(function(Ammo) {
 			}, 1000);
 	}
 	
-	initPhysics();
-	initScene();
-	initObjs();
-	initRenderer();
-	initInput();
-	
-	//initDebug();
-	
-	animate();
-	
+	function init() {
+		initPhysics();
+		initScene();
+		initObjs();
+		initRenderer();
+		initInput();
+		
+		//initDebug();
+		
+		animate();
+	}
 
+	textureLoader.load( "assets/fases/fase01.png", function ( texture ) {
+			    //var canvas = document.createElement("canvas");
+				var canvas = document.getElementById("canvas");
+			    canvas.width  = texture.image.naturalWidth;
+			    canvas.height = texture.image.naturalHeight;
+			    // Copy the image contents to the canvas
+			    var ctx = canvas.getContext("2d");
+			    ctx.drawImage(texture.image, 0, 0);
+
+			    var data8 = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+			    
+			    var size = terrainWidth * terrainDepth;
+			    heightData = new Float32Array(size);
+			    
+			    var p = 0;
+			    var p2 = 0;
+			    for ( var j = 0; j < terrainDepth; j++ ) {
+					for ( var i = 0; i < terrainWidth; i++ ) {
+						var Y = Math.floor((j / (terrainDepth-1)) * canvas.height);
+						var X = Math.floor((i / (terrainWidth-1)) * canvas.width);
+						
+						p2 = (Y << 2) * canvas.width + (X << 2);
+						heightData[p] = (i==0||j==0||i==terrainWidth-1||j==terrainDepth-1) ? -100 : ((255-data8[p2]) / 5.1) - 100;
+						p++;
+					}
+			    }
+			    
+			    init();
+			}
+		);
 });
 

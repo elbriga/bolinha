@@ -32,6 +32,8 @@
 		<body>
 				<div id="container"><br /><br /><br /><br /><br />Loading...</div>
 				<div id="info">Ammo.js physics terrain heightfield demo</div>
+				
+				<canvas id='canvas' width=2000 height=80></canvas>
 
 				<script src="js/three.js"></script>
 				<script src="js/ammoOld.js"></script>
@@ -50,14 +52,14 @@
 					// - Global variables -
 
 					// Heightfield parameters
-					var terrainWidthExtents = 100;
-					var terrainDepthExtents = 20;
-					var terrainWidth = 100;
-					var terrainDepth = 20;
+					var terrainWidthExtents = 200;
+					var terrainDepthExtents = 40;
+					var terrainWidth = 200;
+					var terrainDepth = 40;
 					var terrainHalfWidth = terrainWidth / 2;
 					var terrainHalfDepth = terrainDepth / 2;
-					var terrainMaxHeight = 8;
-					var terrainMinHeight = -2;
+					var terrainMaxHeight = 10;
+					var terrainMinHeight = 0;
 
 					// Graphics variables
 					var container, stats;
@@ -65,6 +67,14 @@
 					var terrainMesh, texture;
 					var clock = new THREE.Clock();
 
+					var heightData = null;
+					var ammoHeightData = null;
+
+					var time = 0;
+					var objectTimePeriod = 3;
+					var timeNextSpawn = time + objectTimePeriod;
+					var maxNumObjects = 30;
+					
 					// Physics variables
 					var collisionConfiguration;
 					var dispatcher;
@@ -74,15 +84,7 @@
 					var terrainBody;
 					var dynamicObjects = [];
 					var transformAux1 = new Ammo.btTransform();
-
-					var heightData = null;
-					var ammoHeightData = null;
-
-					var time = 0;
-					var objectTimePeriod = 3;
-					var timeNextSpawn = time + objectTimePeriod;
-					var maxNumObjects = 30;
-
+					
 					// - Main code -
 					init();
 					animate();
@@ -233,13 +235,13 @@
 						for ( var j = 0; j < depth; j++ ) {
 							for ( var i = 0; i < width; i++ ) {
 
-								/*var radius = Math.sqrt(
+								var radius = Math.sqrt(
 										Math.pow( ( i - w2 ) / w2, 2.0 ) +
 										Math.pow( ( j - d2 ) / d2, 2.0 ) );
 
-								var height = ( Math.sin( radius * phaseMult ) + 1 ) * 0.5 * hRange + minHeight;*/
+								var height = ( Math.sin( radius * phaseMult ) + 1 ) * 0.5 * hRange + minHeight;
 								
-								var height = (j<3 || j>depth-3 || i<3 || i>width-3) ? 1 : 0;
+								//var height = (j<3 || j>depth-3 || i<3 || i>width-3) ? 3 : 0;
 
 								data[ p ] = height;
 
@@ -275,7 +277,7 @@
 							for ( var i = 0; i < terrainWidth; i++ ) {
 
 								// write 32-bit float data to memory
-								Ammo.HEAPF32[ ammoHeightData + p2 >> 2 ] = heightData[ p ];
+								Ammo.HEAPF32[ (ammoHeightData + p2) >> 2 ] = heightData[ p ];
 
 								p++;
 
@@ -353,7 +355,7 @@
 								break;
 						}
 
-						threeObject.position.set( ( Math.random() - 0.5 ) * terrainWidth * 0.6, terrainMaxHeight + objectSize + 2, ( Math.random() - 0.5 ) * terrainDepth * 0.6 );
+						threeObject.position.set( ( Math.random() - 0.5 ) * terrainWidth * 0.6, 20 + objectSize + 2, ( Math.random() - 0.5 ) * terrainDepth * 0.6 );
 
 						var mass = objectSize * 5;
 						var localInertia = new Ammo.btVector3( 0, 0, 0 );
