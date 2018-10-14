@@ -254,13 +254,14 @@ var ammoHeightData = null;
 			var cordaMesh = new THREE.LineSegments( corda_geo, new THREE.LineBasicMaterial( { color: 0x0000ff } ) );
 			
 			// corda - physics
-			var vertice      = new Ammo.btVector3(posI.x, posI.y, 0)
+			var vertice      = new Ammo.btVector3(posI.x, posI.y, posI.z)
 			var ropeSoftBody = new Ammo.btSoftBody(physicsWorld.getWorldInfo(), 1, vertice, [1.0]);
 			for(var i=1; i <= segmentos; ++i) {
 				// "lerp"
 				var	porc = i / segmentos;
 				vertice.setX((posF.x - posI.x) * porc + posI.x);
 				vertice.setY((posF.y - posI.y) * porc + posI.y);
+				vertice.setZ((posF.z - posI.z) * porc + posI.z);
 				ropeSoftBody.appendNode( vertice, 1.0 );
 			}
 			for(var i=1; i <= segmentos; ++i) {
@@ -303,10 +304,10 @@ var ammoHeightData = null;
 			var ropePos = bola.pos.clone();
 			ropePos.y += bola_raio;
 			var v = nodes.at(0);
-			v.set_m_x(new Ammo.btVector3(ropePos.x, ropePos.y, 0));
+			v.set_m_x(new Ammo.btVector3(ropePos.x, ropePos.y, ropePos.z));
 			for(var n=1; n<this.segmentos-1; n++) {
 				var v = nodes.at(n);
-				v.set_m_x(new Ammo.btVector3(ropePos.x + (n % 2 ? 0 : segmentLength), ropePos.y + 10, 0));
+				v.set_m_x(new Ammo.btVector3(ropePos.x + (n % 2 ? 0 : segmentLength), ropePos.y + 10, ropePos.z / 2));
 			}
 			var v = nodes.at(this.segmentos-1);
 			v.set_m_x(new Ammo.btVector3(ropePos.x, ropePos.y + 20, 0));
@@ -342,7 +343,7 @@ var ammoHeightData = null;
 		}
 		
 		novaCorda(segmentos=0) {
-			var posI = new THREE.Vector3( bola.x, bola.y + bola_raio, 0 );
+			var posI = new THREE.Vector3( bola.x, bola.y + bola_raio, bola.z );
 			var posF = new THREE.Vector3( this._lanca.x, this._lanca.y - lanca_raio, 0 );
 			
 			if (this._corda) {
@@ -921,10 +922,10 @@ physicsWorld.addRigidBody( groundBody );
 				var nodePos = node.get_m_x();
 				ropePositions[ indexFloat++ ] = nodePos.x();
 				ropePositions[ indexFloat++ ] = nodePos.y();
-				ropePositions[ indexFloat++ ] = 0;
+				ropePositions[ indexFloat++ ] = nodePos.z();
 				
 				var no = laco._corda._nos[i];
-				no.position.set(nodePos.x(),nodePos.y(),0);
+				no.position.set(nodePos.x(),nodePos.y(),nodePos.z());
 			}
 			laco._corda._mesh.geometry.attributes.position.needsUpdate = true;
 		//}
@@ -963,7 +964,7 @@ physicsWorld.addRigidBody( groundBody );
 		animate();
 	}
 
-	textureLoader.load( "assets/fases/fase01.png", function ( texture ) {
+	textureLoader.load( "assets/fases/fase02.png", function ( texture ) {
 			    //var canvas = document.createElement("canvas");
 				var canvas = document.getElementById("canvas");
 			    canvas.width  = texture.image.naturalWidth;
